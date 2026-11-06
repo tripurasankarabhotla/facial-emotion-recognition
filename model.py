@@ -25,15 +25,29 @@ EMOTION_EMOJIS = {
 
 def load_vit_pipeline():
     """
-    Loads the State-of-the-Art Vision Transformer (ViT)
-    fine-tuned on AffectNet (224x224 RGB, ~91% real-world accuracy).
-    Loads offline from local cache.
+    Loads the Vision Transformer model from Hugging Face.
+    Downloads the model if it is not already cached.
     """
     model_name = "dima806/facial_emotions_image_detection"
-    processor = AutoImageProcessor.from_pretrained(model_name, local_files_only=True)
-    model = AutoModelForImageClassification.from_pretrained(model_name, local_files_only=True)
-    pipe = pipeline("image-classification", model=model, image_processor=processor, framework="pt")
+
+    processor = AutoImageProcessor.from_pretrained(
+        model_name
+    )
+
+    model = AutoModelForImageClassification.from_pretrained(
+        model_name
+    )
+
+    pipe = pipeline(
+        "image-classification",
+        model=model,
+        image_processor=processor,
+        framework="pt",
+        device=-1
+    )
+
     return pipe
+
 
 def build_deepface_model():
     """Builds DeepFace Emotion CNN architecture."""
