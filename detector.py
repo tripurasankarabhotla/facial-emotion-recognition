@@ -1,14 +1,34 @@
+import os
 import cv2
 import numpy as np
 from PIL import Image
 from model import EMOTIONS, EMOTION_EMOJIS
 
-# Load OpenCV Cascades
-FRONTAL_CASCADE_PATH = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
-PROFILE_CASCADE_PATH = cv2.data.haarcascades + 'haarcascade_profileface.xml'
+# Directory of current script
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-frontal_cascade = cv2.CascadeClassifier(FRONTAL_CASCADE_PATH)
-profile_cascade = cv2.CascadeClassifier(PROFILE_CASCADE_PATH)
+def load_cascade(filename):
+    """
+    Robust cascade loader:
+    1. Checks local repository directory
+    2. Falls back to cv2.data.haarcascades
+    """
+    local_path = os.path.join(BASE_DIR, filename)
+    if os.path.exists(local_path):
+        cascade = cv2.CascadeClassifier(local_path)
+        if not cascade.empty():
+            return cascade
+            
+    if hasattr(cv2, 'data') and hasattr(cv2.data, 'haarcascades'):
+        cv_path = os.path.join(cv2.data.haarcascades, filename)
+        if os.path.exists(cv_path):
+            cascade = cv2.CascadeClassifier(cv_path)
+            if not cascade.empty():
+                return cascade
+    return None
+
+frontal_cascade = load_cascade('haarcascade_frontalface_default.xml')
+profile_cascade = load_cascade('haarcascade_profileface.xml')
 
 def detect_faces_robust(image_np):
     """
@@ -22,34 +42,32 @@ def detect_faces_robust(image_np):
     h_img, w_img = image_np.shape[:2]
     gray = cv2.cvtColor(image_np, cv2.COLOR_RGB2GRAY) if len(image_np.shape) == 3 else image_np
 
-    # Stage 1: Standard frontal
-    faces = frontal_cascade.detectMultiScale(gray, scaleFactor=1.15, minNeighbors=5, minSize=(40, 40))
-    if len(faces) > 0:
-        return gray, list(faces), "frontal_standard"
+    # Stage 1 & 2: Frontal cascade
+    if frontal_cascade is not None and not frontal_cascade.empty():
+        faces = frontal_cascade.detectMultiScale(gray, scaleFactor=1.15, minNeighbors=5, minSize=(40, 40))
+        if len(faces) > 0:
+            return gray, list(faces), "frontal_standard"
 
-    # Stage 2: Sensitive frontal
-    faces = frontal_cascade.detectMultiScale(gray, scaleFactor=1.05, minNeighbors=3, minSize=(30, 30))
-    if len(faces) > 0:
-        return gray, list(faces), "frontal_sensitive"
+        faces = frontal_cascade.detectMultiScale(gray, scaleFactor=1.05, minNeighbors=3, minSize=(30, 30))
+        if len(faces) > 0:
+            return gray, list(faces), "frontal_sensitive"
 
-    # Stage 3: Profile cascade (left)
-    faces = profile_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=4, minSize=(30, 30))
-    if len(faces) > 0:
-        return gray, list(faces), "profile_left"
+    # Stage 3 & 4: Profile cascade
+    if profile_cascade is not None and not profile_cascade.empty():
+        faces = profile_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=4, minSize=(30, 30))
+        if len(faces) > 0:
+            return gray, list(faces), "profile_left"
 
-    # Stage 4: Profile cascade (right - flipped)
-    gray_flipped = cv2.flip(gray, 1)
-    faces_flipped = profile_cascade.detectMultiScale(gray_flipped, scaleFactor=1.1, minNeighbors=4, minSize=(30, 30))
-    if len(faces_flipped) > 0:
-        # Un-flip coordinates
-        corrected_faces = []
-        for (fx, fy, fw, fh) in faces_flipped:
-            orig_x = w_img - (fx + fw)
-            corrected_faces.append((orig_x, fy, fw, fh))
-        return gray, corrected_faces, "profile_right"
+        gray_flipped = cv2.flip(gray, 1)
+        faces_flipped = profile_cascade.detectMultiScale(gray_flipped, scaleFactor=1.1, minNeighbors=4, minSize=(30, 30))
+        if len(faces_flipped) > 0:
+            corrected_faces = []
+            for (fx, fy, fw, fh) in faces_flipped:
+                orig_x = w_img - (fx + fw)
+                corrected_faces.append((orig_x, fy, fw, fh))
+            return gray, corrected_faces, "profile_right"
 
     # Stage 5: Infallible fallback (Center crop of photo)
-    # Never leaves an image undetected
     pad_w = int(w_img * 0.08)
     pad_h = int(h_img * 0.08)
     fallback_box = (pad_w, pad_h, w_img - 2 * pad_w, h_img - 2 * pad_h)
